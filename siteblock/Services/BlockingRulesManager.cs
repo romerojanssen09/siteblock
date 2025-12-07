@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using siteblock.Storage;
 
 namespace siteblock.Services
 {
@@ -40,18 +41,96 @@ namespace siteblock.Services
 
         private BlockingRulesManager() { }
 
+        public void Initialize(BlockedSiteDatabase database)
+        {
+            _ = LoadBlockedSitesFromDatabaseAsync();
+        }
+
+        private async Task LoadBlockedSitesFromDatabaseAsync()
+        {
+            try
+            {
+                if (!DatabaseService.IsInitialized)
+                {
+                    System.Diagnostics.Debug.WriteLine("[BlockingRulesManager] Database not initialized yet");
+                    return;
+                }
+
+                var db = DatabaseService.GetDatabase();
+                var domains = await db.GetActiveDomainsAsync();
+                
+                foreach (var domain in domains)
+                {
+                    if (!_blockedDomains.Contains(domain))
+                    {
+                        _blockedDomains.Add(domain);
+                    }
+                }
+                
+                System.Diagnostics.Debug.WriteLine($"[BlockingRulesManager] Loaded {domains.Count} blocked sites from database");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BlockingRulesManager] Error loading blocked sites: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+            }
+        }
+
+        public async Task AddBlockedDomainAsync(string domain, string? category = null, string? notes = null)
+        {
+            try
+            {
+                var lowerDomain = domain.ToLowerInvariant();
+                System.Diagnostics.Debug.WriteLine($"[BlockingRulesManager] Adding domain: {lowerDomain}");
+                
+                if (!_blockedDomains.Contains(lowerDomain))
+                {
+                    _blockedDomains.Add(lowerDomain);
+                    System.Diagnostics.Debug.WriteLine($"[BlockingRulesManager] Domain added to collection");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BlockingRulesManager] Domain already exists in collection: {lowerDomain}");
+                }
+                
+                // Always save to database (will update if exists)
+                var db = DatabaseService.GetDatabase();
+                await db.AddBlockedSiteAsync(new BlockedSite
+                {
+                    Domain = lowerDomain,
+                    Category = category,
+                    Notes = notes
+                });
+                
+                System.Diagnostics.Debug.WriteLine($"[BlockingRulesManager] Domain saved to database");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BlockingRulesManager] Error adding domain: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                throw;
+            }
+        }
+
         public void AddBlockedDomain(string domain)
         {
+            Task.Run(async () => await AddBlockedDomainAsync(domain));
+        }
+
+        public async Task RemoveBlockedDomainAsync(string domain)
+        {
             var lowerDomain = domain.ToLowerInvariant();
-            if (!_blockedDomains.Contains(lowerDomain))
-            {
-                _blockedDomains.Add(lowerDomain);
-            }
+            _blockedDomains.Remove(lowerDomain);
+            
+            // Remove from database
+            var db = DatabaseService.GetDatabase();
+            await db.RemoveBlockedSiteAsync(lowerDomain);
+            System.Diagnostics.Debug.WriteLine($"[BlockingRulesManager] Domain removed: {lowerDomain}");
         }
 
         public void RemoveBlockedDomain(string domain)
         {
-            _blockedDomains.Remove(domain.ToLowerInvariant());
+            Task.Run(async () => await RemoveBlockedDomainAsync(domain));
         }
 
         public void AddBlockedIp(string ip)
@@ -92,10 +171,34 @@ namespace siteblock.Services
             AllowedCount = 0;
         }
 
-        public void ClearAll()
+        public async Task ClearAllAsync()
         {
             _blockedDomains.Clear();
             _blockedIps.Clear();
+            
+            // Clear database
+            var db = DatabaseService.GetDatabase();
+            await db.ClearAllBlockedSitesAsync();
+            System.Diagnostics.Debug.WriteLine($"[BlockingRulesManager] All sites cleared");
+        }
+
+        // ✅ Get all cached blocked sites
+        public async Task<List<BlockedSite>> GetAllCachedSitesAsync()
+        {
+            var db = DatabaseService.GetDatabase();
+            return await db.GetAllBlockedSitesAsync();
+        }
+
+        // ✅ Get count of cached sites
+        public async Task<int> GetCachedSitesCountAsync()
+        {
+            var db = DatabaseService.GetDatabase();
+            return await db.GetActiveCountAsync();
+        }
+
+        public void ClearAll()
+        {
+            Task.Run(async () => await ClearAllAsync());
         }
     }
 }

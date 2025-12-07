@@ -1,7 +1,6 @@
 ﻿using siteblock.Services;
 using System.Collections.ObjectModel;
 using System.Text.RegularExpressions;
-using System.Linq;
 
 #if ANDROID
 using Android.Content;
@@ -36,6 +35,59 @@ namespace siteblock
             // Subscribe to collection changes
             rulesManager.BlockedDomains.CollectionChanged += (s, e) => LoadBlockedRules();
             rulesManager.BlockedIps.CollectionChanged += (s, e) => LoadBlockedRules();
+        }
+
+        protected override void OnAppearing()
+        {
+            base.OnAppearing();
+            
+            // Check VPN status when page appears
+            CheckAndUpdateVpnStatus();
+        }
+
+        private void CheckAndUpdateVpnStatus()
+        {
+#if ANDROID
+            try
+            {
+                // Check if VPN is active by checking if VpnService.Prepare returns null
+                var prepareIntent = VpnService.Prepare(Platform.CurrentActivity);
+                var isVpnPermissionGranted = prepareIntent == null;
+                
+                // Check if our service is actually running
+                var activityManager = Platform.CurrentActivity?.GetSystemService(Context.ActivityService) as Android.App.ActivityManager;
+                var isServiceRunning = false;
+                
+                if (activityManager != null)
+                {
+                    var runningServices = activityManager.GetRunningServices(int.MaxValue);
+                    isServiceRunning = runningServices?.Any(service => 
+                        service.Service.ClassName?.Contains("BlockingVpnService") == true) ?? false;
+                }
+                
+                System.Diagnostics.Debug.WriteLine($"[MainPage] VPN Status Check - Permission granted: {isVpnPermissionGranted}, Service running: {isServiceRunning}");
+                
+                // Update UI based on actual status
+                if (isServiceRunning)
+                {
+                    _isVpnActive = true;
+                    StatusLabel.Text = "Active";
+                    VpnButton.Text = "Stop VPN";
+                    StatsLabel.IsVisible = true;
+                }
+                else
+                {
+                    _isVpnActive = false;
+                    StatusLabel.Text = "Inactive";
+                    VpnButton.Text = "Start VPN";
+                    StatsLabel.IsVisible = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainPage] Error checking VPN status: {ex.Message}");
+            }
+#endif
         }
 
         private void LoadBlockedRules()
@@ -118,15 +170,8 @@ namespace siteblock
 
         private void UpdateVpnStatus()
         {
-            // Check if VPN is actually running by checking logs
-            var logs = LogManager.Instance.Logs;
-            if (logs.Any(log => log.Contains("VPN interface established")))
-            {
-                _isVpnActive = true;
-                StatusLabel.Text = "Active";
-                VpnButton.Text = "Stop VPN";
-                StatsLabel.IsVisible = true;
-            }
+            // Check VPN status after permission request
+            CheckAndUpdateVpnStatus();
         }
 
         private void StopVpnService()
@@ -156,13 +201,17 @@ namespace siteblock
             }
             else
             {
-                rulesManager.AddBlockedDomain(rule);
+                await rulesManager.AddBlockedDomainAsync(rule);
             }
 
             DomainEntry.Text = string.Empty;
+            
+            // Show cache info
+            var count = await rulesManager.GetCachedSitesCountAsync();
+            await DisplayAlert("Success", $"Added blocking rule: {rule}\nTotal cached sites: {count}", "OK");
         }
 
-        private void OnDeleteRuleClicked(object sender, EventArgs e)
+        private async void OnDeleteRuleClicked(object sender, EventArgs e)
         {
             if (sender is Button button && button.CommandParameter is string rule)
             {
@@ -174,14 +223,11 @@ namespace siteblock
                 }
                 else
                 {
-                    rulesManager.RemoveBlockedDomain(rule);
+                    await rulesManager.RemoveBlockedDomainAsync(rule);
                 }
             }
         }
 
-        private async void OnViewLogsClicked(object sender, EventArgs e)
-        {
-            await Navigation.PushAsync(new LogsPage());
-        }
+
     }
 }

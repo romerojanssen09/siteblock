@@ -98,10 +98,7 @@
                 </VerticalStackLayout>
             </Frame>
 
-            <!-- View Logs Button -->
-            <Button Text="View Logs" 
-                    Clicked="OnViewLogsClicked"
-                    BackgroundColor="Gray"/>
+
 
         </VerticalStackLayout>
     </ScrollView>

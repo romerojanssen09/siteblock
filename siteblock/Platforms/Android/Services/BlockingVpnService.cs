@@ -26,8 +26,6 @@ namespace siteblock.Platforms.Android.Services
         private ParcelFileDescriptor? _vpnInterface;
         private CancellationTokenSource? _cancellationTokenSource;
         private Task? _packetProcessingTask;
-        private string _lastBlockedDomain = "";
-        private long _lastBlockTime = 0;
         private ConnectivityManager? _connectivityManager;
 
         public override void OnCreate()
@@ -277,7 +275,21 @@ namespace siteblock.Platforms.Android.Services
                             if (siteblock.Services.BlockingRulesManager.Instance.IsDomainBlocked(domain))
                             {
                                 Log($"🚫 BLOCKED: {domain} → 0.0.0.0");
-                                ShowBlockNotification(domain);
+                                
+                                // Show notification using NotificationHelper (no throttling)
+                                Task.Run(async () =>
+                                {
+                                    try
+                                    {
+                                        var result = await siteblock.Helpers.NotificationHelper.NotificationTypes.GamblingBlocking.ShowSiteBlockedAsync(domain);
+                                        Log($"✅ Notification shown: {result} for {domain}");
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Log($"❌ Notification error: {ex.Message}");
+                                    }
+                                }).ConfigureAwait(false);
+                                
                                 var response = CreateBlockedDnsResponse(packet, length, ipHeaderLength);
                                 await Task.Run(() => vpnOutput.Write(response), cancellationToken);
                                 return;
@@ -487,7 +499,7 @@ namespace siteblock.Platforms.Android.Services
             response[pos++] = 0x00;
             response[pos++] = 0x00;
             response[pos++] = 0x00;
-            response[pos++] = 0x3C;
+            response[pos++] = 0x00; // no caching
             response[pos++] = 0x00;
             response[pos++] = 0x04;
             response[pos++] = 0x00;
@@ -560,26 +572,7 @@ namespace siteblock.Platforms.Android.Services
             Log("Notification channels created");
         }
 
-        private void ShowBlockNotification(string domain)
-        {
-            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            if (domain == _lastBlockedDomain && now - _lastBlockTime < 5000)
-                return;
 
-            _lastBlockedDomain = domain;
-            _lastBlockTime = now;
-
-            var notification = new Notification.Builder(this, BLOCK_CHANNEL_ID)
-                .SetContentTitle("Site Blocked")
-                .SetContentText(domain)
-                .SetSmallIcon(global::Android.Resource.Drawable.IcDelete)
-                .SetAutoCancel(true)
-                .SetTimeoutAfter(3000)
-                .Build();
-
-            var manager = GetSystemService(NotificationService) as NotificationManager;
-            manager?.Notify(BLOCK_NOTIFICATION_ID, notification);
-        }
 
         private Notification CreateNotification()
         {
@@ -597,7 +590,6 @@ namespace siteblock.Platforms.Android.Services
         private void Log(string message)
         {
             System.Diagnostics.Debug.WriteLine($"[{TAG}] {message}");
-            siteblock.Services.LogManager.Instance.AddLog(message);
         }
 
         public override void OnDestroy()
