@@ -1,0 +1,187 @@
+﻿using siteblock.Services;
+using System.Collections.ObjectModel;
+using System.Text.RegularExpressions;
+using System.Linq;
+
+#if ANDROID
+using Android.Content;
+using Android.Net;
+using siteblock.Platforms.Android.Services;
+#endif
+
+namespace siteblock
+{
+    public partial class MainPage : ContentPage
+    {
+        private bool _isVpnActive = false;
+        private readonly ObservableCollection<string> _allRules = new();
+
+        public MainPage()
+        {
+            InitializeComponent();
+            LoadBlockedRules();
+            UpdateStats();
+
+            // Subscribe to stats updates
+            var rulesManager = BlockingRulesManager.Instance;
+            rulesManager.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(BlockingRulesManager.BlockedCount) ||
+                    e.PropertyName == nameof(BlockingRulesManager.AllowedCount))
+                {
+                    MainThread.BeginInvokeOnMainThread(UpdateStats);
+                }
+            };
+
+            // Subscribe to collection changes
+            rulesManager.BlockedDomains.CollectionChanged += (s, e) => LoadBlockedRules();
+            rulesManager.BlockedIps.CollectionChanged += (s, e) => LoadBlockedRules();
+        }
+
+        private void LoadBlockedRules()
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                _allRules.Clear();
+                var rulesManager = BlockingRulesManager.Instance;
+
+                foreach (var domain in rulesManager.BlockedDomains)
+                {
+                    _allRules.Add(domain);
+                }
+
+                foreach (var ip in rulesManager.BlockedIps)
+                {
+                    _allRules.Add(ip);
+                }
+
+                BlockedList.ItemsSource = _allRules;
+                RuleCountLabel.Text = $"{_allRules.Count} rules";
+            });
+        }
+
+        private void UpdateStats()
+        {
+            var rulesManager = BlockingRulesManager.Instance;
+            StatsLabel.Text = $"Blocked: {rulesManager.BlockedCount} | Allowed: {rulesManager.AllowedCount}";
+            StatsLabel.IsVisible = _isVpnActive;
+        }
+
+        private async void OnVpnButtonClicked(object sender, EventArgs e)
+        {
+            if (_isVpnActive)
+            {
+                StopVpnService();
+                _isVpnActive = false;
+                StatusLabel.Text = "Inactive";
+                VpnButton.Text = "Start VPN";
+                StatsLabel.IsVisible = false;
+                BlockingRulesManager.Instance.ResetStats();
+            }
+            else
+            {
+#if ANDROID
+                var prepareIntent = VpnService.Prepare(Platform.CurrentActivity);
+                if (prepareIntent != null)
+                {
+                    // Request VPN permission - result handled in MainActivity.OnActivityResult
+                    Platform.CurrentActivity?.StartActivityForResult(prepareIntent, 100);
+                    
+                    // Wait a bit and check if VPN started
+                    await Task.Delay(2000);
+                    UpdateVpnStatus();
+                }
+                else
+                {
+                    // Permission already granted, start directly
+                    StartVpnService();
+                }
+#else
+                await DisplayAlert("Not Supported", "VPN is only supported on Android", "OK");
+#endif
+            }
+        }
+
+        private void StartVpnService()
+        {
+#if ANDROID
+            var intent = new Intent(Platform.CurrentActivity, typeof(BlockingVpnService));
+            intent.SetAction(BlockingVpnService.ACTION_START);
+            Platform.CurrentActivity?.StartService(intent);
+
+            _isVpnActive = true;
+            StatusLabel.Text = "Active";
+            VpnButton.Text = "Stop VPN";
+            StatsLabel.IsVisible = true;
+#endif
+        }
+
+        private void UpdateVpnStatus()
+        {
+            // Check if VPN is actually running by checking logs
+            var logs = LogManager.Instance.Logs;
+            if (logs.Any(log => log.Contains("VPN interface established")))
+            {
+                _isVpnActive = true;
+                StatusLabel.Text = "Active";
+                VpnButton.Text = "Stop VPN";
+                StatsLabel.IsVisible = true;
+            }
+        }
+
+        private void StopVpnService()
+        {
+#if ANDROID
+            var intent = new Intent(Platform.CurrentActivity, typeof(BlockingVpnService));
+            intent.SetAction(BlockingVpnService.ACTION_STOP);
+            Platform.CurrentActivity?.StartService(intent);
+#endif
+        }
+
+        private async void OnAddRuleClicked(object sender, EventArgs e)
+        {
+            var rule = DomainEntry.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(rule))
+            {
+                await DisplayAlert("Error", "Please enter a domain or IP address", "OK");
+                return;
+            }
+
+            var rulesManager = BlockingRulesManager.Instance;
+
+            // Check if it's an IP address
+            if (Regex.IsMatch(rule, @"^\d+\.\d+\.\d+\.\d+$"))
+            {
+                rulesManager.AddBlockedIp(rule);
+            }
+            else
+            {
+                rulesManager.AddBlockedDomain(rule);
+            }
+
+            DomainEntry.Text = string.Empty;
+        }
+
+        private void OnDeleteRuleClicked(object sender, EventArgs e)
+        {
+            if (sender is Button button && button.CommandParameter is string rule)
+            {
+                var rulesManager = BlockingRulesManager.Instance;
+
+                if (Regex.IsMatch(rule, @"^\d+\.\d+\.\d+\.\d+$"))
+                {
+                    rulesManager.RemoveBlockedIp(rule);
+                }
+                else
+                {
+                    rulesManager.RemoveBlockedDomain(rule);
+                }
+            }
+        }
+
+        private async void OnViewLogsClicked(object sender, EventArgs e)
+        {
+            await Navigation.PushAsync(new LogsPage());
+        }
+    }
+}

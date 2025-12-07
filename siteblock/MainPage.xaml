@@ -1,0 +1,109 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="siteblock.MainPage"
+             Title="Site Blocking VPN">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="15">
+            
+            <!-- VPN Status Card -->
+            <Frame BorderColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource Primary}}"
+                   CornerRadius="10"
+                   Padding="15">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="VPN Status" 
+                           FontSize="18" 
+                           FontAttributes="Bold"/>
+                    
+                    <HorizontalStackLayout Spacing="10">
+                        <Label x:Name="StatusLabel" 
+                               Text="Inactive" 
+                               VerticalOptions="Center"
+                               FontSize="16"/>
+                        <Button x:Name="VpnButton" 
+                                Text="Start VPN" 
+                                Clicked="OnVpnButtonClicked"
+                                HorizontalOptions="End"/>
+                    </HorizontalStackLayout>
+                    
+                    <Label x:Name="StatsLabel" 
+                           Text="" 
+                           FontSize="12"
+                           TextColor="Gray"
+                           IsVisible="False"/>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Add Domain Section -->
+            <Frame BorderColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource Primary}}"
+                   CornerRadius="10"
+                   Padding="15">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="Add Blocking Rule" 
+                           FontSize="18" 
+                           FontAttributes="Bold"/>
+                    
+                    <Entry x:Name="DomainEntry" 
+                           Placeholder="example.com or 1.2.3.4"
+                           ReturnCommand="{Binding Source={x:Reference AddButton}, Path=Command}"/>
+                    
+                    <Button x:Name="AddButton" 
+                            Text="Add Rule" 
+                            Clicked="OnAddRuleClicked"/>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Blocked Domains List -->
+            <Frame BorderColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource Primary}}"
+                   CornerRadius="10"
+                   Padding="15">
+                <VerticalStackLayout Spacing="10">
+                    <HorizontalStackLayout Spacing="10">
+                        <Label Text="Blocked Domains &amp; IPs" 
+                               FontSize="18" 
+                               FontAttributes="Bold"
+                               HorizontalOptions="Start"/>
+                        <Label x:Name="RuleCountLabel" 
+                               Text="0 rules" 
+                               FontSize="14"
+                               TextColor="{StaticResource Primary}"
+                               VerticalOptions="Center"
+                               HorizontalOptions="End"/>
+                    </HorizontalStackLayout>
+                    
+                    <CollectionView x:Name="BlockedList" 
+                                    HeightRequest="300">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate>
+                                <Frame Padding="10" 
+                                       Margin="0,5" 
+                                       BorderColor="LightGray"
+                                       CornerRadius="5">
+                                    <HorizontalStackLayout Spacing="10">
+                                        <Label Text="{Binding .}" 
+                                               VerticalOptions="Center"
+                                               HorizontalOptions="StartAndExpand"/>
+                                        <Button Text="Delete" 
+                                                CommandParameter="{Binding .}"
+                                                Clicked="OnDeleteRuleClicked"
+                                                BackgroundColor="Red"
+                                                TextColor="White"
+                                                Padding="10,5"/>
+                                    </HorizontalStackLayout>
+                                </Frame>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- View Logs Button -->
+            <Button Text="View Logs" 
+                    Clicked="OnViewLogsClicked"
+                    BackgroundColor="Gray"/>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>
