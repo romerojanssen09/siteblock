@@ -27,13 +27,18 @@ namespace siteblock.Platforms.Android.Services
         private CancellationTokenSource? _cancellationTokenSource;
         private Task? _packetProcessingTask;
         private ConnectivityManager? _connectivityManager;
+        private Task? _notificationWatcherTask;
+        private CancellationTokenSource? _notificationWatcherCts;
 
         public override void OnCreate()
         {
             base.OnCreate();
             Log("OnCreate called");
             _connectivityManager = (ConnectivityManager?)GetSystemService(ConnectivityService);
-            CreateNotificationChannel();
+            
+            // Initialize notification channels
+            siteblock.Platforms.Android.Helper.AndroidNotificationHelper.InitializeChannels(this);
+            
             ObserveBlockingRules();
         }
 
@@ -72,16 +77,10 @@ namespace siteblock.Platforms.Android.Services
 
         private void ShowRulesUpdatedNotification()
         {
-            var notification = new Notification.Builder(this, BLOCK_CHANNEL_ID)
-                .SetContentTitle("Blocking Rules Updated")
-                .SetContentText("VPN restarted - new rules active")
-                .SetSmallIcon(global::Android.Resource.Drawable.IcDialogInfo)
-                .SetAutoCancel(true)
-                .SetTimeoutAfter(3000)
-                .Build();
-
-            var manager = GetSystemService(NotificationService) as NotificationManager;
-            manager?.Notify(BLOCK_NOTIFICATION_ID + 1, notification);
+            siteblock.Platforms.Android.Helper.AndroidNotificationHelper.ShowNormalNotification(
+                this,
+                "Blocking Rules Updated",
+                "VPN restarted - new rules active");
         }
 
         [return: GeneratedEnum]
@@ -153,19 +152,32 @@ namespace siteblock.Platforms.Android.Services
 
                 Log("✓ VPN interface established - DNS-only blocking mode");
 
+                // Start foreground service with silent notification
+                var notification = siteblock.Platforms.Android.Helper.AndroidNotificationHelper.CreateVpnNotification(this);
+                var notificationId = siteblock.Platforms.Android.Helper.AndroidNotificationHelper.GetVpnNotificationId();
+                
                 if (Build.VERSION.SdkInt >= BuildVersionCodes.Q)
                 {
-                    StartForeground(NOTIFICATION_ID, CreateNotification(), global::Android.Content.PM.ForegroundService.TypeSystemExempted);
+                    StartForeground(notificationId, notification, global::Android.Content.PM.ForegroundService.TypeSystemExempted);
                 }
                 else
                 {
-                    StartForeground(NOTIFICATION_ID, CreateNotification());
+                    StartForeground(notificationId, notification);
                 }
-                Log("✓ Started foreground service");
+                Log("✓ Started foreground service with silent notification");
+
+                // Update notification to ensure it's visible
+                var notificationManager = GetSystemService(NotificationService) as NotificationManager;
+                notificationManager?.Notify(notificationId, notification);
 
                 _cancellationTokenSource = new CancellationTokenSource();
                 _packetProcessingTask = Task.Run(() => ProcessPackets(_cancellationTokenSource.Token));
                 Log("✓ Packet processing task started");
+
+                // Start notification watcher to keep notification visible
+                _notificationWatcherCts = new CancellationTokenSource();
+                _notificationWatcherTask = Task.Run(() => WatchNotification(_notificationWatcherCts.Token));
+                Log("✓ Notification watcher started");
             }
             catch (Exception ex)
             {
@@ -174,10 +186,46 @@ namespace siteblock.Platforms.Android.Services
             }
         }
 
+        /// <summary>
+        /// Watches and re-shows the notification if it gets dismissed
+        /// </summary>
+        private async Task WatchNotification(CancellationToken cancellationToken)
+        {
+            Log("📢 Notification watcher started");
+            
+            while (!cancellationToken.IsCancellationRequested && _vpnInterface != null)
+            {
+                try
+                {
+                    // Re-show notification every 2 seconds to ensure it stays visible
+                    await Task.Delay(2000, cancellationToken);
+                    
+                    if (_vpnInterface != null)
+                    {
+                        var notification = siteblock.Platforms.Android.Helper.AndroidNotificationHelper.CreateVpnNotification(this);
+                        var notificationId = siteblock.Platforms.Android.Helper.AndroidNotificationHelper.GetVpnNotificationId();
+                        var notificationManager = GetSystemService(NotificationService) as NotificationManager;
+                        notificationManager?.Notify(notificationId, notification);
+                    }
+                }
+                catch (TaskCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Log($"⚠️ Notification watcher error: {ex.Message}");
+                }
+            }
+            
+            Log("📢 Notification watcher stopped");
+        }
+
         private void StopVpn()
         {
             Log("Stopping VPN...");
             _cancellationTokenSource?.Cancel();
+            _notificationWatcherCts?.Cancel();
             _vpnInterface?.Close();
             _vpnInterface = null;
             StopForeground(StopForegroundFlags.Remove);
@@ -276,19 +324,8 @@ namespace siteblock.Platforms.Android.Services
                             {
                                 Log($"🚫 BLOCKED: {domain} → 0.0.0.0");
                                 
-                                // Show notification using NotificationHelper (no throttling)
-                                Task.Run(async () =>
-                                {
-                                    try
-                                    {
-                                        var result = await siteblock.Helpers.NotificationHelper.NotificationTypes.GamblingBlocking.ShowSiteBlockedAsync(domain);
-                                        Log($"✅ Notification shown: {result} for {domain}");
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        Log($"❌ Notification error: {ex.Message}");
-                                    }
-                                }).ConfigureAwait(false);
+                                // Show heads-up notification for blocked site
+                                siteblock.Platforms.Android.Helper.AndroidNotificationHelper.ShowBlockedSiteNotification(this, domain);
                                 
                                 var response = CreateBlockedDnsResponse(packet, length, ipHeaderLength);
                                 await Task.Run(() => vpnOutput.Write(response), cancellationToken);
@@ -548,43 +585,6 @@ namespace siteblock.Platforms.Android.Services
                 sum = (sum & 0xFFFF) + (sum >> 16);
             }
             return (int)(~sum & 0xFFFF);
-        }
-
-        private void CreateNotificationChannel()
-        {
-            var manager = GetSystemService(NotificationService) as NotificationManager;
-
-            var serviceChannel = new NotificationChannel(
-                CHANNEL_ID,
-                "VPN Blocking Service",
-                NotificationImportance.Low);
-            manager?.CreateNotificationChannel(serviceChannel);
-
-            var blockChannel = new NotificationChannel(
-                BLOCK_CHANNEL_ID,
-                "Blocked Sites",
-                NotificationImportance.Default)
-            {
-                Description = "Notifications when sites are blocked"
-            };
-            manager?.CreateNotificationChannel(blockChannel);
-            
-            Log("Notification channels created");
-        }
-
-
-
-        private Notification CreateNotification()
-        {
-            var intent = new Intent(this, typeof(MainActivity));
-            var pendingIntent = PendingIntent.GetActivity(this, 0, intent, PendingIntentFlags.Immutable);
-
-            return new Notification.Builder(this, CHANNEL_ID)
-                .SetContentTitle("VPN Blocking Active")
-                .SetContentText("System-wide blocking is enabled")
-                .SetSmallIcon(global::Android.Resource.Drawable.IcDialogInfo)
-                .SetContentIntent(pendingIntent)
-                .Build();
         }
 
         private void Log(string message)

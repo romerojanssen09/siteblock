@@ -16,6 +16,20 @@ namespace siteblock
         {
             base.OnCreate(savedInstanceState);
             Instance = this;
+            
+            // Ensure the app can run in background
+            if (Build.VERSION.SdkInt >= BuildVersionCodes.M)
+            {
+                // Request battery optimization exemption for better background performance
+                var powerManager = GetSystemService(PowerService) as PowerManager;
+                var packageName = PackageName;
+                
+                if (powerManager != null && packageName != null && !powerManager.IsIgnoringBatteryOptimizations(packageName))
+                {
+                    System.Diagnostics.Debug.WriteLine("[MainActivity] App is subject to battery optimization");
+                    // Note: You can prompt user to disable battery optimization if needed
+                }
+            }
         }
 
         protected override void OnActivityResult(int requestCode, Result resultCode, Intent? data)
@@ -26,10 +40,37 @@ namespace siteblock
             {
                 if (resultCode == Result.Ok)
                 {
+                    // Show notification that permission was granted
+                    siteblock.Platforms.Android.Helper.AndroidNotificationHelper.ShowNormalNotification(
+                        this,
+                        "VPN Permission Granted",
+                        "Starting VPN service...");
+                    
                     // VPN permission granted, start the service
                     var intent = new Intent(this, typeof(BlockingVpnService));
                     intent.SetAction(BlockingVpnService.ACTION_START);
-                    StartService(intent);
+                    
+                    // Use StartForegroundService for Android 8.0+
+                    if (Build.VERSION.SdkInt >= BuildVersionCodes.O)
+                    {
+                        StartForegroundService(intent);
+                    }
+                    else
+                    {
+                        StartService(intent);
+                    }
+                    
+                    System.Diagnostics.Debug.WriteLine("[MainActivity] VPN service start requested");
+                }
+                else
+                {
+                    // Show notification that permission was denied
+                    siteblock.Platforms.Android.Helper.AndroidNotificationHelper.ShowNormalNotification(
+                        this,
+                        "VPN Permission Denied",
+                        "Cannot start VPN without permission");
+                    
+                    System.Diagnostics.Debug.WriteLine("[MainActivity] VPN permission denied");
                 }
             }
         }

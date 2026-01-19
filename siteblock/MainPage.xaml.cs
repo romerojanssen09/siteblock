@@ -133,6 +133,15 @@ namespace siteblock
             else
             {
 #if ANDROID
+                // Show notification first
+                siteblock.Platforms.Android.Helper.AndroidNotificationHelper.ShowNormalNotification(
+                    Platform.CurrentActivity!,
+                    "Starting VPN",
+                    "Requesting VPN permission...");
+                
+                // Small delay to ensure notification is visible
+                await Task.Delay(500);
+                
                 var prepareIntent = VpnService.Prepare(Platform.CurrentActivity);
                 if (prepareIntent != null)
                 {
@@ -147,6 +156,12 @@ namespace siteblock
                 {
                     // Permission already granted, start directly
                     StartVpnService();
+                    
+                    // Show success notification
+                    siteblock.Platforms.Android.Helper.AndroidNotificationHelper.ShowNormalNotification(
+                        Platform.CurrentActivity!,
+                        "VPN Started",
+                        "Protection is now active");
                 }
 #else
                 await DisplayAlert("Not Supported", "VPN is only supported on Android", "OK");
@@ -159,12 +174,23 @@ namespace siteblock
 #if ANDROID
             var intent = new Intent(Platform.CurrentActivity, typeof(BlockingVpnService));
             intent.SetAction(BlockingVpnService.ACTION_START);
-            Platform.CurrentActivity?.StartService(intent);
+            
+            // Use StartForegroundService for Android 8.0+ to ensure proper background operation
+            if (Android.OS.Build.VERSION.SdkInt >= Android.OS.BuildVersionCodes.O)
+            {
+                Platform.CurrentActivity?.StartForegroundService(intent);
+            }
+            else
+            {
+                Platform.CurrentActivity?.StartService(intent);
+            }
 
             _isVpnActive = true;
             StatusLabel.Text = "Active";
             VpnButton.Text = "Stop VPN";
             StatsLabel.IsVisible = true;
+            
+            System.Diagnostics.Debug.WriteLine("[MainPage] VPN service started with foreground service");
 #endif
         }
 

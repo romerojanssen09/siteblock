@@ -1,10 +1,22 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-	<application android:allowBackup="true" android:icon="@mipmap/appicon" android:roundIcon="@mipmap/appicon_round" android:supportsRtl="true"></application>
+	<application android:allowBackup="true" android:icon="@mipmap/appicon" android:roundIcon="@mipmap/appicon_round" android:supportsRtl="true">
+		<service
+			android:name=".Platforms.Android.Services.BlockingVpnService"
+			android:permission="android.permission.BIND_VPN_SERVICE"
+			android:exported="true"
+			android:foregroundServiceType="systemExempted">
+			<intent-filter>
+				<action android:name="android.net.VpnService" />
+			</intent-filter>
+		</service>
+	</application>
 	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 	<uses-permission android:name="android.permission.INTERNET" />
 	<uses-permission android:name="android.permission.BIND_VPN_SERVICE" />
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
+	<uses-permission android:name="android.permission.WAKE_LOCK" />
+	<!-- Notification permissions -->
 	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

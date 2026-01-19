@@ -126,7 +126,7 @@ public static class NotificationHelper
     }
 
     /// <summary>
-    /// Shows an immediate local notification with deduplication
+    /// Shows an immediate local notification (no permission needed for foreground service)
     /// </summary>
     /// <param name="title">Notification title</param>
     /// <param name="message">Notification message</param>
@@ -147,15 +147,7 @@ public static class NotificationHelper
             // Initialize channels first
             InitializeNotificationChannels();
 
-            // Request permission first
-            var granted = await RequestNotificationPermissionAsync();
-            if (!granted)
-            {
-                System.Diagnostics.Debug.WriteLine("❌ Notification permission not granted");
-                return false;
-            }
-
-            System.Diagnostics.Debug.WriteLine($"[Notification] Permission granted, creating notification...");
+            System.Diagnostics.Debug.WriteLine($"[Notification] Creating notification...");
 
             var request = new NotificationRequest
             {
